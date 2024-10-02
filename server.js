@@ -179,6 +179,147 @@ app.get('/periodos', (req, res) => {
   });
 });
 
+
+app.post('/saveRecord', (req, res) => {
+  console.log('Datos recibidos en saveRegister:', req.body);
+
+  const {
+    usuario,
+    empresa
+  } = req.body.usuario;
+
+  const {
+    // usuario,
+    aportesFet,
+    aportesFQ,
+    aportesAMB,
+    fechaEmision,
+    numeroFacturaPDF1,
+    numeroFacturaPDF2,
+    numeroFacturaPDF3
+  } = req.body;
+
+  const fechaEmisionFormatted = new Date(fechaEmision);
+  const formattedFechaEmision = fechaEmisionFormatted.toISOString().slice(0, 19).replace('T', ' '); 
+
+
+  if (!usuario || aportesFet === undefined || aportesFQ === undefined || aportesAMB === undefined || !fechaEmision) {
+    return res.status(400).json({
+      message: 'Todos los campos son requeridos'
+    });
+  }
+
+  ibmdb.open(connectionString, (err, conn) => {
+    if (err) {
+      console.error('Error conectando a DB2:', err);
+      return res.status(500).json({
+        message: 'Error conectando a la base de datos'
+      });
+    }
+
+    const queryInfoAdicional = `
+      SELECT A.ID_TERCERO, B.NOMBRES, B.DIRECCION, B.CODIGO, B.TELEFONO, B.EMAIL 
+      FROM AMB_EMPRESAS A 
+      INNER JOIN CRT_TERCEROS B ON A.ID_TERCERO = B.ID 
+      WHERE A.USUARIO = ?
+    `;
+
+    conn.query(queryInfoAdicional, [usuario], (err, data) => {
+      if (err) {
+        console.error('Error en la consulta de información adicional:', err);
+        conn.close();
+        return res.status(500).json({
+          message: 'Error obteniendo información adicional'
+        });
+      }
+
+      if (data.length === 0) {
+        conn.close();
+        return res.status(404).json({
+          message: 'Usuario no encontrado'
+        });
+      }
+
+      const {
+        ID_TERCERO,
+        NOMBRES,
+        DIRECCION,
+        CODIGO,
+        TELEFONO,
+        EMAIL
+      } = data[0];
+
+      const insertRegistro = `
+        INSERT INTO REC_PRO_FACTURA (
+          NRO_PRO_FACTURA, TOTAL_FACTURA, INTERESES_MOR_CAUSADOS, TOTAL_VALOR_CARTERA, TOTAL_SALDO_SANCIONES, FECHA_PRO_FACTURA, FECHA_EMI_FACTURA,
+          ID_TERCERO, NOMBRES, DIRECCION, CODIGO, TELEFONO, EMAIL
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+
+      const aportes = [{
+          nroFactura: numeroFacturaPDF1,
+          totalFactura: aportesFet,
+          totalValorCartera: aportesFet
+        },
+        {
+          nroFactura: numeroFacturaPDF2,
+          totalFactura: aportesFQ,
+          totalValorCartera: aportesFQ
+        },
+        {
+          nroFactura: numeroFacturaPDF3,
+          totalFactura: aportesAMB,
+          totalValorCartera: aportesAMB
+        }
+      ];
+
+
+      const insertarRegistro = (aporte) => {
+        return new Promise((resolve, reject) => {
+          const params = [
+            aporte.nroFactura,
+            aporte.totalFactura,
+            0, // INTERESES_MOR_CAUSADOS
+            aporte.totalValorCartera,
+            0, // TOTAL_SALDO_SANCIONES
+            formattedFechaEmision,
+            formattedFechaEmision, // FECHA_EMI_FACTURA
+            ID_TERCERO,
+            NOMBRES,
+            DIRECCION,
+            CODIGO,
+            TELEFONO,
+            EMAIL
+          ];
+
+          conn.query(insertRegistro, params, (err, result) => {
+            if (err) {
+              reject(err);
+            } else {
+              resolve(result);
+            }
+          });
+        });
+      };
+
+      Promise.all(aportes.map(insertarRegistro))
+        .then(results => {
+          conn.close();
+          return res.status(201).json({
+            message: 'Registros guardados exitosamente'
+          });
+        })
+        .catch(err => {
+          console.error('Error insertando en registro:', err);
+          conn.close();
+          return res.status(500).json({
+            message: 'Error guardando los registros'
+          });
+        });
+    });
+  }); 
+});
+
 app.listen(port, () => {
   console.log(`Servidor backend escuchando en http://localhost:${port}`);
 });
