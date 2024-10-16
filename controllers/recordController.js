@@ -78,8 +78,8 @@ exports.saveRecord = async (req, res) => {
         const insertProFactura = `
           INSERT INTO REC_PRO_FACTURA (
             NRO_PRO_FACTURA, TOTAL_FACTURA, INTERESES_MOR_CAUSADOS, TOTAL_VALOR_CARTERA, TOTAL_SALDO_SANCIONES, FECHA_PRO_FACTURA, FECHA_EMI_FACTURA,
-            ID_TERCERO, NOMBRES, DIRECCION, CODIGO, TELEFONO, EMAIL
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ID_TERCERO, NOMBRES, DIRECCION, CODIGO, TELEFONO, EMAIL, ESTADO_PRO_FACTURA, CLASE_FACTURA
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
 
         const insertDetalleCartera = `
@@ -117,10 +117,20 @@ exports.saveRecord = async (req, res) => {
             }
         ];
 
-        const insertarProFactura = (aporte) => {
-            return new Promise((resolve, reject) => {
+        const insertarProFactura = async (aporte) => {
+            // Obtener el contador correlativo y actualizarlo
+            const updateCorrelativoQuery = `UPDATE GEN_CORRELATIVOS SET CONTADOR_CORRELATIVO = CONTADOR_CORRELATIVO + 1 WHERE ID_DOCUMENTO = 'FACTURAS'`;
+            await conn.query(updateCorrelativoQuery);
+
+            // Obtener el nuevo valor del contador correlativo
+            const getCorrelativoQuery = `SELECT CONTADOR_CORRELATIVO FROM GEN_CORRELATIVOS WHERE ID_DOCUMENTO = 'FACTURAS'`;
+            const correlativoResult = await conn.query(getCorrelativoQuery);
+            const contadorCorrelativo = correlativoResult[0]?.CONTADOR_CORRELATIVO;
+
+            await new Promise((resolve, reject) => {
+                const nroProFactura = contadorCorrelativo.toString().padStart(10, '0');
                 const params = [
-                    aporte.nroFactura,
+                    nroProFactura,
                     aporte.totalFactura,
                     0, // INTERESES_MOR_CAUSADOS
                     aporte.totalValorCartera,
@@ -132,7 +142,9 @@ exports.saveRecord = async (req, res) => {
                     DIRECCION,
                     CODIGO,
                     TELEFONO,
-                    EMAIL
+                    EMAIL,
+                    1, // ESTADO_PRO_FACTURA
+                    1 // CLASE_FACTURA
                 ];
 
                 conn.query(insertProFactura, params, (err, result) => {
