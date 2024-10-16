@@ -15,7 +15,11 @@ exports.saveRecord = async (req, res) => {
         fechaEmision,
         numeroFacturaPDF1,
         numeroFacturaPDF2,
-        numeroFacturaPDF3
+        numeroFacturaPDF3,
+        reporteEntradas,
+        noNovedades,
+        baseLiquidacion,
+        periodo
     } = req.body;
 
     if (!usuario || aportesFet === undefined || aportesFQ === undefined || aportesAMB === undefined || !fechaEmision) {
@@ -26,6 +30,8 @@ exports.saveRecord = async (req, res) => {
 
     const fechaEmisionFormatted = new Date(fechaEmision);
     const formattedFechaEmision = fechaEmisionFormatted.toISOString().slice(0, 19).replace('T', ' ');
+
+    const currentTime = new Date().toTimeString().slice(0, 8);
 
     let conn;
     try {
@@ -69,18 +75,26 @@ exports.saveRecord = async (req, res) => {
             EMAIL
         } = data[0];
 
-        const insertRegistro = `
+        const insertProFactura = `
           INSERT INTO REC_PRO_FACTURA (
             NRO_PRO_FACTURA, TOTAL_FACTURA, INTERESES_MOR_CAUSADOS, TOTAL_VALOR_CARTERA, TOTAL_SALDO_SANCIONES, FECHA_PRO_FACTURA, FECHA_EMI_FACTURA,
             ID_TERCERO, NOMBRES, DIRECCION, CODIGO, TELEFONO, EMAIL
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
 
-        const insertCartera = `
+        const insertDetalleCartera = `
           INSERT INTO CRT_DETALLE_CARTERA (
             ID_CARTERA, TIPO_DOCUMENTO, CODIGO_CIUDAD, IDENTIFICACION, NOMBRE, TELEFONO, DIRECCION, EMAIL, CODIGO_REFERENCIA,
             NUMERO_OBLIGACION, VALOR_TOTAL, SALDO_CAPITAL, SALDO_SANCION, SALDO_INTERES, ESTADO, FECHA_VIGENCIA, ID_TERCERO
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `;
+
+        const insertDetallesConceptos = `
+          INSERT INTO CRT_DETALLES_CONCEPTOS_AMB (
+            ID_DETALLE_CARTERA, NUMERO_OBLIGACION, REPORTE_ENTRADAS, NUMERO_NOVEDADES, BASE_LIQUIDACION,
+            PERIODO, FECHA_CREACION, HORA_CREACION, USUARIO_CREACION, IP_CREACION, ESTADO,
+            FECHA_ESTADO, HORA_ESTADO, USER_ESTADO, IP_ESTADO
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
 
         const aportes = [{
@@ -103,7 +117,7 @@ exports.saveRecord = async (req, res) => {
             }
         ];
 
-        const insertarRegistro = (aporte) => {
+        const insertarProFactura = (aporte) => {
             return new Promise((resolve, reject) => {
                 const params = [
                     aporte.nroFactura,
@@ -121,7 +135,7 @@ exports.saveRecord = async (req, res) => {
                     EMAIL
                 ];
 
-                conn.query(insertRegistro, params, (err, result) => {
+                conn.query(insertProFactura, params, (err, result) => {
                     if (err) {
                         console.error('Error insertando registro en REC_PRO_FACTURA:', err);
                         reject(err);
@@ -132,7 +146,7 @@ exports.saveRecord = async (req, res) => {
             });
         };
 
-        const insertarCartera = (aporte) => {
+        const insertarDetalleCartera = (aporte) => {
             return new Promise((resolve, reject) => {
                 const carteraParams = [
                     aporte.idCartera, // ID_CARTERA 
@@ -154,11 +168,50 @@ exports.saveRecord = async (req, res) => {
                     ID_TERCERO // ID_TERCERO
                 ];
 
-                console.log('Insertando registro en CARTERA con los siguientes parámetros:', carteraParams);
-
-                conn.query(insertCartera, carteraParams, (err, result) => {
+                conn.query(insertDetalleCartera, carteraParams, (err, result) => {
                     if (err) {
                         console.error('Error insertando registro en CARTERA:', err);
+                        reject(err);
+                    } else {
+                        // Obtener el ID del último registro insertado
+                        const queryLastInsertId = 'SELECT IDENTITY_VAL_LOCAL() AS ID_DETALLE_CARTERA FROM SYSIBM.SYSDUMMY1';
+                        conn.query(queryLastInsertId, (err, idResult) => {
+                            if (err) {
+                                console.error('Error obteniendo el ID del último registro insertado:', err);
+                                reject(err);
+                            } else {
+                                const idDetalleCartera = idResult[0].ID_DETALLE_CARTERA;
+                                resolve(idDetalleCartera);
+                            }
+                        });
+                    }
+                });
+            });
+        };
+
+        const insertarDetallesConceptos = (aporte, idDetalleCartera) => {
+            return new Promise((resolve, reject) => {
+                const params = [
+                    idDetalleCartera, // ID_DETALLE_CARTERA
+                    `${periodo}${aporte.idCartera === idCarteraFet ? '8' : aporte.idCartera === idCarteraFQ ? '9' : '10'}${aporte.nroFactura}`, // NUMERO_OBLIGACION
+                    reporteEntradas, // REPORTE_ENTRADAS
+                    noNovedades, // NRO_NOVEDADES
+                    baseLiquidacion, // BASE_LIQUIDACION
+                    periodo, // PERIODO
+                    formattedFechaEmision, // FECHA_CREACION
+                    currentTime, // HORA_CREACION
+                    usuario, // USUARIO_CREACION
+                    '', // IP_CREACION
+                    1, // ESTADO
+                    formattedFechaEmision, // FECHA_ESTADO
+                    currentTime, // HORA_ESTADO
+                    usuario, // USER_ESTADO
+                    '' // IP_ESTADO
+                ];
+
+                conn.query(insertDetallesConceptos, params, (err, result) => {
+                    if (err) {
+                        console.error('Error insertando registro en conceptos:', err);
                         reject(err);
                     } else {
                         resolve(result);
@@ -167,14 +220,16 @@ exports.saveRecord = async (req, res) => {
             });
         };
 
-        await Promise.all(aportes.map(async (aporte) => {
-            await insertarRegistro(aporte);
-            await insertarCartera(aporte);
-        }));
+
+        for (const aporte of aportes) {
+            await insertarProFactura(aporte);
+            const idCarteraInsertada = await insertarDetalleCartera(aporte);
+            await insertarDetallesConceptos(aporte, idCarteraInsertada);
+        }
 
         conn.close();
         return res.status(201).json({
-            message: 'Registros guardados exitosamente en ambas tablas'
+            message: 'Registros guardados exitosamente en las tablas'
         });
 
     } catch (err) {
