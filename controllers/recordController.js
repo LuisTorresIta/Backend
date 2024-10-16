@@ -75,13 +75,6 @@ exports.saveRecord = async (req, res) => {
             EMAIL
         } = data[0];
 
-        const insertProFactura = `
-          INSERT INTO REC_PRO_FACTURA (
-            NRO_PRO_FACTURA, TOTAL_FACTURA, INTERESES_MOR_CAUSADOS, TOTAL_VALOR_CARTERA, TOTAL_SALDO_SANCIONES, FECHA_PRO_FACTURA, FECHA_EMI_FACTURA,
-            ID_TERCERO, NOMBRES, DIRECCION, CODIGO, TELEFONO, EMAIL, ESTADO_PRO_FACTURA, CLASE_FACTURA
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `;
-
         const insertDetalleCartera = `
           INSERT INTO CRT_DETALLE_CARTERA (
             ID_CARTERA, TIPO_DOCUMENTO, CODIGO_CIUDAD, IDENTIFICACION, NOMBRE, TELEFONO, DIRECCION, EMAIL, CODIGO_REFERENCIA,
@@ -96,6 +89,19 @@ exports.saveRecord = async (req, res) => {
             FECHA_ESTADO, HORA_ESTADO, USER_ESTADO, IP_ESTADO
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
+
+        const insertProFactura = `
+        INSERT INTO REC_PRO_FACTURA (
+          NRO_PRO_FACTURA, TOTAL_FACTURA, INTERESES_MOR_CAUSADOS, TOTAL_VALOR_CARTERA, TOTAL_SALDO_SANCIONES, FECHA_PRO_FACTURA, FECHA_EMI_FACTURA,
+          ID_TERCERO, NOMBRES, DIRECCION, CODIGO, TELEFONO, EMAIL, ESTADO_PRO_FACTURA, CLASE_FACTURA
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+
+        const insertProFacturaRenglones = `
+        INSERT INTO REC_PRO_FACTURA_RENGLONES (
+        ID_DETALLE_CARTERA, NRO_PRO_FACTURA, NUMERO_OBLIGACION, VALOR_CARTERA_RENG, SALDO_SANCIONES_RENG, FECHA_VIGENCIA_RENG, FECHA_PRO_FACTURA,
+           INTERESES_MOR_CAUS_RENG, TOTAL_PRO_FACTURA_RENG, ESTADO, ID_CUOTA, CLASE_RENGLON
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
         const aportes = [{
                 nroFactura: numeroFacturaPDF1,
@@ -116,47 +122,6 @@ exports.saveRecord = async (req, res) => {
                 idCartera: idCarteraAMB
             }
         ];
-
-        const insertarProFactura = async (aporte) => {
-            // Obtener el contador correlativo y actualizarlo
-            const updateCorrelativoQuery = `UPDATE GEN_CORRELATIVOS SET CONTADOR_CORRELATIVO = CONTADOR_CORRELATIVO + 1 WHERE ID_DOCUMENTO = 'FACTURAS'`;
-            await conn.query(updateCorrelativoQuery);
-
-            // Obtener el nuevo valor del contador correlativo
-            const getCorrelativoQuery = `SELECT CONTADOR_CORRELATIVO FROM GEN_CORRELATIVOS WHERE ID_DOCUMENTO = 'FACTURAS'`;
-            const correlativoResult = await conn.query(getCorrelativoQuery);
-            const contadorCorrelativo = correlativoResult[0]?.CONTADOR_CORRELATIVO;
-
-            await new Promise((resolve, reject) => {
-                const nroProFactura = contadorCorrelativo.toString().padStart(10, '0');
-                const params = [
-                    nroProFactura,
-                    aporte.totalFactura,
-                    0, // INTERESES_MOR_CAUSADOS
-                    aporte.totalValorCartera,
-                    0, // TOTAL_SALDO_SANCIONES
-                    formattedFechaEmision,
-                    formattedFechaEmision, // FECHA_EMI_FACTURA
-                    ID_TERCERO,
-                    NOMBRES,
-                    DIRECCION,
-                    CODIGO,
-                    TELEFONO,
-                    EMAIL,
-                    1, // ESTADO_PRO_FACTURA
-                    1 // CLASE_FACTURA
-                ];
-
-                conn.query(insertProFactura, params, (err, result) => {
-                    if (err) {
-                        console.error('Error insertando registro en REC_PRO_FACTURA:', err);
-                        reject(err);
-                    } else {
-                        resolve(result);
-                    }
-                });
-            });
-        };
 
         const insertarDetalleCartera = (aporte) => {
             return new Promise((resolve, reject) => {
@@ -232,11 +197,82 @@ exports.saveRecord = async (req, res) => {
             });
         };
 
+        const insertarProFactura = async (aporte) => {
+            // Obtener el contador correlativo y actualizarlo
+            const updateCorrelativoQuery = `UPDATE GEN_CORRELATIVOS SET CONTADOR_CORRELATIVO = CONTADOR_CORRELATIVO + 1 WHERE ID_DOCUMENTO = 'FACTURAS'`;
+            await conn.query(updateCorrelativoQuery);
+
+            // Obtener el nuevo valor del contador correlativo
+            const getCorrelativoQuery = `SELECT CONTADOR_CORRELATIVO FROM GEN_CORRELATIVOS WHERE ID_DOCUMENTO = 'FACTURAS'`;
+            const correlativoResult = await conn.query(getCorrelativoQuery);
+            const contadorCorrelativo = correlativoResult[0]?.CONTADOR_CORRELATIVO;
+
+            const nroProFactura = contadorCorrelativo.toString().padStart(10, '0');
+
+            const params = [
+                nroProFactura,
+                aporte.totalFactura,
+                0, // INTERESES_MOR_CAUSADOS
+                aporte.totalValorCartera,
+                0, // TOTAL_SALDO_SANCIONES
+                formattedFechaEmision,
+                formattedFechaEmision, // FECHA_EMI_FACTURA
+                ID_TERCERO,
+                NOMBRES,
+                DIRECCION,
+                CODIGO,
+                TELEFONO,
+                EMAIL,
+                1, // ESTADO_PRO_FACTURA
+                1 // CLASE_FACTURA
+            ];
+
+            await new Promise((resolve, reject) => {
+                conn.query(insertProFactura, params, (err, result) => {
+                    if (err) {
+                        console.error('Error insertando registro en REC_PRO_FACTURA:', err);
+                        reject(err);
+                    } else {
+                        resolve(result);
+                    }
+                });
+            });
+            return nroProFactura;
+        };
+
+        const insertarProFacturaRenglones = (idDetalleCartera, nroProFactura, aporte) => {
+            return new Promise((resolve, reject) => {
+                const params = [
+                    idDetalleCartera, // ID_DETALLE_CARTERA
+                    nroProFactura, // NRO_PRO_FACTURA
+                    `${periodo}${aporte.idCartera === idCarteraFet ? '8' : aporte.idCartera === idCarteraFQ ? '9' : '10'}${aporte.nroFactura}`, // NUMERO_OBLIGACION
+                    aporte.totalFactura, // VALOR_CARTERA_RENG
+                    0, // SALDO_SANCIONES_RENG
+                    formattedFechaEmision, // FECHA_VIGENCIA_RENG
+                    formattedFechaEmision, // FECHA_PRO_FACTURA
+                    0, // INTERES_MOR_CAUSADOS_REN
+                    aporte.totalFactura, // TOTAL_PRO_FACTURA_REN
+                    1, // ESTADO
+                    0, // ID_CUOTA
+                    1 // CLASE_RENGLON
+                ];
+                console.log('Parámetros para RENGLONES:', params);
+                conn.query(insertProFacturaRenglones, params, (err, result) => {
+                    if (err) {
+                        console.error('Error insertando registro en RENGLONES:', err);
+                        reject(err);
+                    } else {
+                        resolve(result);
+                    }
+                });
+            });
+        };
 
         for (const aporte of aportes) {
-            await insertarProFactura(aporte);
             const idCarteraInsertada = await insertarDetalleCartera(aporte);
             await insertarDetallesConceptos(aporte, idCarteraInsertada);
+            const nroProFactura = await insertarProFactura(aporte);
+            await insertarProFacturaRenglones(idCarteraInsertada, nroProFactura, aporte);
         }
 
         conn.close();
