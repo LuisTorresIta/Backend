@@ -11,6 +11,9 @@ router.get('/query', queryController.getEmpresas);
 // Ruta para obtener periodos
 router.get('/periodos', queryController.getPeriodos);
 
+// Ruta para obtener parametros
+router.get('/parametros', queryController.getParametros);
+
 router.post('/estado-cuenta', queryController.getEstadoCuenta);
 
 module.exports = router;
