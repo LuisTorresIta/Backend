@@ -17,7 +17,7 @@ exports.login = async (req, res) => {
 
     try {
         const conn = await connectDB();
-        const sql = 'SELECT usuario, nombre_empresa FROM DB2ADMIN.AMB_EMPRESAS WHERE usuario = ? AND clave = ?';
+        const sql = 'SELECT usuario, nombre_empresa, id_tercero FROM DB2ADMIN.AMB_EMPRESAS WHERE usuario = ? AND clave = ?';
         const data = await conn.query(sql, [usuario, hashedClave]);
 
         conn.close();
@@ -26,7 +26,8 @@ exports.login = async (req, res) => {
             return res.status(200).json({
                 message: 'Login successful',
                 usuario: data[0].USUARIO,
-                empresa: data[0].NOMBRE_EMPRESA
+                empresa: data[0].NOMBRE_EMPRESA,
+                idTercero: data[0].ID_TERCERO
             });
         } else {
             return res.status(401).json({

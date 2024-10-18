@@ -43,7 +43,6 @@ exports.getParametros = async (req, res) => {
     }
 };
 
-
 exports.getPeriodos = async (req, res) => {
     try {
         const conn = await connectDB();
@@ -57,58 +56,47 @@ exports.getPeriodos = async (req, res) => {
     }
 };
 
-// exports.getEstadoCuenta = async (req, res) => {
-//     try {
-//         const { fechaInicio, fechaFinal } = req.body; // Extraemos las fechas del cuerpo de la solicitud
-
-//         // Asegúrate de que las fechas no sean nulas
-//         if (!fechaInicio || !fechaFinal) {
-//             return res.status(400).send('Las fechas de inicio y final son requeridas.');
-//         }
-
-//         const conn = await connectDB();
-//         const query = `
-//             SELECT * 
-//             FROM DB2ADMIN.REC_PRO_FACTURA
-//             WHERE FECHA_EMI_FACTURA BETWEEN ? AND ?`;
-
-//         // Ejecutamos la consulta, pasando las fechas como parámetros
-//         const data = await conn.query(query, [fechaInicio, fechaFinal]);
-//         res.status(200).json(data);
-//         conn.close();
-//     } catch (err) {
-//         console.error('Error en la consulta de estado de cuenta:', err);
-//         res.status(500).send('Error en la consulta');
-//     }
-// };
-
-
 exports.getEstadoCuenta = async (req, res) => {
+    const {
+        fechaInicio,
+        fechaFin,
+        idTercero
+    } = req.body;
+
+    if (!fechaInicio || !fechaFin || !idTercero) {
+        return res.status(400).json({
+            message: 'Fecha de inicio, fecha de fin y ID de tercero son requeridos'
+        });
+    }
+
     try {
-        const {
-            usuario,
-            fechaInicio,
-            fechaFinal
-        } = req.body;
-
-        if (!usuario || !fechaInicio || !fechaFinal) {
-            return res.status(400).send('El usuario, la fecha de inicio y la fecha final son requeridos.');
-        }
-
         const conn = await connectDB();
+        const sql = `
+            SELECT dc.NUMERO_OBLIGACION, dc.VALOR_TOTAL, dc.FECHA_VIGENCIA, b.PERIODO, d.NOMBRE
+            FROM CRT_DETALLE_CARTERA dc
+            INNER JOIN CRT_DETALLES_CONCEPTOS_AMB b ON dc.ID = b.ID_DETALLE_CARTERA
+            INNER JOIN CRT_CARTERA c ON dc.ID_CARTERA = c.ID
+            INNER JOIN GES_CONCEPTOS d ON c.ID_CONCEPTO_COBRANZA = d.ID
+            WHERE dc.FECHA_VIGENCIA BETWEEN ? AND ? AND dc.ID_TERCERO = ?`;
 
-        const query = `
-            SELECT e.nombre AS empresa, r.concepto, r.numeroRecibo, r.total, r.fechaPagado, r.valorPagado
-            FROM AMB_EMPRESAS e
-            JOIN registros r ON e.id = r.empresaId
-            WHERE e.usuarioId = ? AND r.fechaPagado BETWEEN ? AND ?`;
-
-        const data = await conn.query(query, [usuario, fechaInicio, fechaFinal]);
-        res.status(200).json(data);
+        const data = await conn.query(sql, [fechaInicio, fechaFin, idTercero]);
 
         conn.close();
+
+        if (data.length > 0) {
+            return res.status(200).json({
+                message: 'Detalles de conceptos obtenidos con éxito',
+                detalles: data
+            });
+        } else {
+            return res.status(404).json({
+                message: 'No se encontraron detalles de conceptos'
+            });
+        }
     } catch (err) {
-        console.error('Error en la consulta de estado de cuenta:', err);
-        res.status(500).send('Error en la consulta');
+        console.error('Error en obtener detalles de conceptos:', err);
+        return res.status(500).json({
+            message: 'Error interno del servidor'
+        });
     }
 };
